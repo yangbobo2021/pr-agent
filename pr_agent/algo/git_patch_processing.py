@@ -202,11 +202,11 @@ def convert_to_hunks_with_lines_numbers(patch: str, file) -> str:
                         patch_with_lines_str += f"{line_old}\n"
                 new_content_lines = []
                 old_content_lines = []
-            try:
-                start1, size1, start2, size2 = map(int, match.groups()[:4])
-            except: # '@@ -0,0 +1 @@' case
-                start1, size1, size2 = map(int, match.groups()[:3])
-                start2 = 0
+                try:
+                    start1, size1, start2, size2 = map(int, match.groups()[:4])
+                except:  # '@@ -0,0 +1 @@' case
+                    start1, size1, size2 = map(int, match.groups()[:3])
+                    start2 = 0
 
         elif line.startswith('+'):
             new_content_lines.append(line)
