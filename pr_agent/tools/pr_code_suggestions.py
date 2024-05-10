@@ -88,7 +88,7 @@ class PRCodeSuggestions:
             else:
                 data = await retry_with_fallback_models(self._prepare_prediction_extended, ModelType.TURBO)
 
-            if (not data) or (not 'code_suggestions' in data) or (not data['code_suggestions']):
+            if not data or not data.get('code_suggestions'):
                 get_logger().error('No code suggestions found for PR.')
                 pr_body = "## PR Code Suggestions ✨\n\nNo code suggestions found for PR."
                 get_logger().debug(f"PR output", artifact=pr_body)
@@ -102,6 +102,22 @@ class PRCodeSuggestions:
                     (self.is_extended and get_settings().pr_code_suggestions.rank_extended_suggestions):
                 get_logger().info('Ranking Suggestions...')
                 data['code_suggestions'] = await self.rank_suggestions(data['code_suggestions'])
+
+            # sort suggestions according to the labels
+            try:
+                suggestion_list = []
+                if not data:
+                    return suggestion_list
+                for suggestion in data['code_suggestions']:
+                    label = suggestion['label'].strip()
+                    if label.lower() in ['bug', 'possible bug', 'performance', 'possible issue', 'security']:
+                        suggestion_list.insert(0, suggestion)
+                    else:
+                        suggestion_list.append(suggestion)
+                data['code_suggestions'] = suggestion_list
+            except Exception as e:
+                get_logger().info(f"Could not sort suggestions, error: {e}")
+
 
             if get_settings().config.publish_output:
                 self.git_provider.remove_initial_comment()
@@ -192,7 +208,7 @@ class PRCodeSuggestions:
         if isinstance(data, list):
             data = {'code_suggestions': data}
 
-        # remove invalid suggestions
+        # remove or edit invalid suggestions
         suggestion_list = []
         one_sentence_summary_list = []
         for i, suggestion in enumerate(data['code_suggestions']):
@@ -210,15 +226,17 @@ class PRCodeSuggestions:
                     get_logger().debug(f"Skipping suggestion {i + 1}, because it uses 'const instead let': {suggestion}")
                     continue
 
-                if ('existing_code' in suggestion) and ('improved_code' in suggestion) and (
-                        suggestion['existing_code'] != suggestion['improved_code']):
+                if ('existing_code' in suggestion) and ('improved_code' in suggestion):
+                    if suggestion['existing_code'] == suggestion['improved_code']:
+                        get_logger().debug(f"skipping improved suggestion {i + 1}, because equal to existing code: {suggestion['existing_code']}")
+                        suggestion['improved_code'] = "..."
                     suggestion = self._truncate_if_needed(suggestion)
                     if not get_settings().pr_code_suggestions.commitable_code_suggestions:
                         one_sentence_summary_list.append(suggestion['one_sentence_summary'])
                     suggestion_list.append(suggestion)
                 else:
-                    get_logger().debug(
-                        f"Skipping suggestion {i + 1}, because existing code is equal to improved code {suggestion['existing_code']}")
+                    get_logger().info(
+                        f"Skipping suggestion {i + 1}, because it does not contain 'existing_code' or 'improved_code': {suggestion}")
             except Exception as e:
                 get_logger().error(f"Error processing suggestion {i + 1}: {suggestion}, error: {e}")
         data['code_suggestions'] = suggestion_list
